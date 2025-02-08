@@ -132,7 +132,6 @@ def _get_num_wire_groups_for_expval_H(obs):
 
 
 def _get_num_executions_for_sum(obs):
-
     if obs.grouping_indices:
         return len(obs.grouping_indices)
 

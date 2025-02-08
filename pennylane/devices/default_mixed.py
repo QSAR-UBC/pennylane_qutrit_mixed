@@ -48,12 +48,99 @@ from pennylane.ops.qubit.attributes import diagonal_in_z_basis
 from pennylane.wires import Wires
 
 from .._version import __version__
+import jax
+import jax.numpy as jnp
+from .qtcorgi_helper.apply_operations import qubit_branches
+
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
 ABC_ARRAY = np.array(list(ABC))
 tolerance = 1e-10
+
+two_gates = [
+    "THadamard",
+    "TRX_01",
+    "TRY_01",
+    "TRZ_01",
+    "TRX_02",
+    "TRY_02",
+    "TRZ_02",
+    "TRX_12",
+    "TRY_12",
+    "TRZ_12",
+]
+
+
+def _run_switch(initial_state, ops_info, two_qubit_ops):
+    branches = qubit_branches[: 2 + two_qubit_ops]
+
+    @jax.jit
+    def switch_function(state, op_info):
+        return jax.lax.switch(op_info["type_indices"][0], branches, state, op_info), None
+
+    return jax.lax.scan(switch_function, initial_state, ops_info)[0]
+
+
+
+def get_qubit_final_state_from_initial(operations, initial_state):
+    """
+    TODO
+
+    Args:
+        operations ():TODO
+        initial_state ():TODO
+
+    Returns:
+        Tuple[TensorLike, bool]: A tuple containing the final state of the quantum script and
+            whether the state has a batch dimension.
+
+    """
+    ops_type_indices, ops_wires, ops_param = [[], []], [[], []], []
+
+    two_qubit_ops = False
+    for op in operations:
+
+        wires = op.wires
+
+        if isinstance(op, Channel):
+            ops_type_indices[0].append(1)
+            ops_type_indices[1].append(
+                [qml.DepolarizingChannel, qml.AmplitudeDamping, qml.BitFlip].index(type(op))
+            )
+        elif len(wires) == 1:
+            ops_type_indices[0].append(0)
+            ops_type_indices[1].append([qml.RX, qml.RY, qml.RZ, qml.Hadamard].index(type(op)))
+        elif len(wires) == 2:
+            ops_type_indices[0].append(2)
+            if isinstance(op, qml.CNOT):
+                op_index = 0
+            else:
+                op_index = two_gates.index(op.id) + 1
+            if op_index < 2:
+                ops_param.append(0.0)
+            else:
+                ops_param.append(op.phi)
+            two_qubit_ops = True
+            ops_type_indices[1].append(op_index)
+
+        else:
+            raise ValueError("TODO")
+
+        if len(wires) == 1:
+            wires = [wires[0], -1]
+            ops_param.append(op.parameters[0])
+        ops_wires[0].append(wires[0])
+        ops_wires[1].append(wires[1])
+
+    ops_info = {
+        "type_indices": np.array(ops_type_indices).T,
+        "wires": [np.array(ops_wires[0]), np.array(ops_wires[1])],
+        "param": jnp.array(ops_param),
+    }
+
+    return jax.jit(_run_switch, static_argnames="two_qubit_ops")(initial_state, ops_info, two_qubit_ops)
 
 
 class DefaultMixed(QubitDevice):
@@ -92,73 +179,19 @@ class DefaultMixed(QubitDevice):
     author = "Xanadu Inc."
 
     operations = {
-        "Identity",
-        "Snapshot",
         "BasisState",
         "QubitStateVector",
         "StatePrep",
         "QubitDensityMatrix",
-        "QubitUnitary",
-        "ControlledQubitUnitary",
-        "BlockEncode",
-        "MultiControlledX",
-        "DiagonalQubitUnitary",
-        "SpecialUnitary",
-        "PauliX",
-        "PauliY",
-        "PauliZ",
-        "MultiRZ",
         "Hadamard",
-        "S",
-        "T",
-        "SX",
         "CNOT",
-        "SWAP",
-        "ISWAP",
-        "CSWAP",
-        "Toffoli",
-        "CCZ",
-        "CY",
-        "CZ",
-        "CH",
-        "PhaseShift",
-        "PCPhase",
-        "ControlledPhaseShift",
-        "CPhaseShift00",
-        "CPhaseShift01",
-        "CPhaseShift10",
+        "QubitUnitary",
         "RX",
         "RY",
         "RZ",
-        "Rot",
-        "CRX",
-        "CRY",
-        "CRZ",
-        "CRot",
         "AmplitudeDamping",
-        "GeneralizedAmplitudeDamping",
-        "PhaseDamping",
         "DepolarizingChannel",
         "BitFlip",
-        "PhaseFlip",
-        "PauliError",
-        "ResetError",
-        "QubitChannel",
-        "SingleExcitation",
-        "SingleExcitationPlus",
-        "SingleExcitationMinus",
-        "DoubleExcitation",
-        "DoubleExcitationPlus",
-        "DoubleExcitationMinus",
-        "QubitCarry",
-        "QubitSum",
-        "OrbitalRotation",
-        "FermionicSWAP",
-        "QFT",
-        "ThermalRelaxationError",
-        "ECR",
-        "ParametrizedEvolution",
-        "GlobalPhase",
     }
 
     _reshape = staticmethod(qnp.reshape)
@@ -781,9 +814,18 @@ class DefaultMixed(QubitDevice):
                     f"on a {self.short_name} device."
                 )
 
-        for operation in operations:
-            self._apply_operation(operation)
+        prep = False
+        if len(operations) > 0:
+            if (
+                isinstance(operations[0], StatePrep)
+                or isinstance(operations[0], BasisState)
+                or isinstance(operations[0], QubitDensityMatrix)
+            ):
+                prep = True
+                self._apply_operation(operation)
 
+        self._state = jnp.complex128(self._state)
+        self._state = get_qubit_final_state_from_initial(operations[prep:], self._state)
         # store the pre-rotated state
         self._pre_rotated_state = self._state
 

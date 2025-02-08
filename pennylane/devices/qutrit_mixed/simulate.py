@@ -18,11 +18,13 @@ from numpy.random import default_rng
 import pennylane as qml
 from pennylane.typing import Result
 
-from .apply_operation import apply_operation
 from .initialize_state import create_initial_state
 from .measure import measure
 from .sampling import measure_with_samples
-from .utils import QUDIT_DIM
+from ..qtcorgi_helper.apply_operations import qutrit_branches
+import jax
+import jax.numpy as jnp
+import numpy as np
 
 INTERFACE_TO_LIKE = {
     # map interfaces known by autoray to themselves
@@ -45,57 +47,70 @@ INTERFACE_TO_LIKE = {
 }
 
 
-def get_final_state(circuit, debugger=None, interface=None, **kwargs):
+def get_qutrit_final_state_from_initial(operations, initial_state):
     """
-    Get the final state that results from executing the given quantum script.
-
-    This is an internal function that will be called by ``default.qutrit.mixed``.
+    TODO
 
     Args:
-        circuit (.QuantumScript): The single circuit to simulate
-        debugger (._Debugger): The debugger to use
-        interface (str): The machine learning interface to create the initial state with
+        operations ():TODO
+        initial_state ():TODO
 
     Returns:
         Tuple[TensorLike, bool]: A tuple containing the final state of the quantum script and
             whether the state has a batch dimension.
 
     """
-    circuit = circuit.map_to_standard_wires()
+    ops_type_indices, ops_subspace, ops_wires, ops_params = [[], []], [], [[], []], [[], [], []]
+    two_qutrit_ops = False
+    for op in operations:
+        wires = op.wires
 
-    prep = None
-    if len(circuit) > 0 and isinstance(circuit[0], qml.operation.StatePrepBase):
-        prep = circuit[0]
+        if isinstance(op, qml.operation.Channel):
+            ops_type_indices[0].append(1)
+            ops_type_indices[1].append(
+                [qml.QutritDepolarizingChannel, qml.QutritAmplitudeDamping, qml.TritFlip].index(
+                    type(op)
+                )
+            )
+            params = op.parameters + ([0] * (3 - op.num_params))
+            wires = [wires[0], -1]
+        elif len(wires) == 1:
+            ops_type_indices[0].append(0)
+            ops_type_indices[1].append([qml.THadamard, qml.TRX, qml.TRY, qml.TRZ].index(type(op)))
+            subspace_index = [None, (0, 1), (0, 2), (1, 2)].index(op.subspace)
+            if ops_type_indices[1][-1] == 0:
+                params = [0.0, 0.0, 0.0]
+            else:
+                params = list(op.parameters) + [0.0, 0.0]
+            wires = [wires[0], subspace_index]
+        elif len(wires) == 2:
+            ops_type_indices[0].append(2)
+            ops_type_indices[1].append(0 if isinstance(op, qml.TAdd) else 1)
+            params = [0.0, 0.0, 0.0]
+            two_qutrit_ops = True
+        else:
+            raise ValueError("TODO")
+        ops_params[0].append(params[0])
+        ops_params[1].append(params[1])
+        ops_params[2].append(params[2])
 
-    state = create_initial_state(sorted(circuit.op_wires), prep, like=INTERFACE_TO_LIKE[interface])
+        if len(wires) == 1:
+            wires = [wires[0], -1]
+        ops_wires[0].append(wires[0])
+        ops_wires[1].append(wires[1])
 
-    # initial state is batched only if the state preparation (if it exists) is batched
-    is_state_batched = bool(prep and prep.batch_size is not None)
-    for op in circuit.operations[bool(prep) :]:
-        state = apply_operation(
-            op,
-            state,
-            is_state_batched=is_state_batched,
-            debugger=debugger,
-            tape_shots=circuit.shots,
-            **kwargs,
-        )
+    ops_info = {
+        "type_indices": np.array(ops_type_indices).T,
+        "wires": [np.array(ops_wires[0]), np.array(ops_wires[1])],
+        "params": [jnp.array(ops_params[0]), np.array(ops_params[1]), np.array(ops_params[2])],
+    }
+    branches = qutrit_branches[: 2 + two_qutrit_ops]
 
-        # new state is batched if i) the old state is batched, or ii) the new op adds a batch dim
-        is_state_batched = is_state_batched or op.batch_size is not None
+    @jax.jit
+    def switch_function(state, op_info):
+        return jax.lax.switch(op_info["type_indices"][0], branches, state, op_info), None
 
-    num_operated_wires = len(circuit.op_wires)
-    for i in range(len(circuit.wires) - num_operated_wires):
-        # If any measured wires are not operated on, we pad the density matrix with zeros.
-        # We know they belong at the end because the circuit is in standard wire-order
-        # Since it is a dm, we must pad it with 0s on the last row and last column
-        current_axis = num_operated_wires + i + is_state_batched
-        state = qml.math.stack(
-            ([state] + [qml.math.zeros_like(state)] * (QUDIT_DIM - 1)), axis=current_axis
-        )
-        state = qml.math.stack(([state] + [qml.math.zeros_like(state)] * (QUDIT_DIM - 1)), axis=-1)
-
-    return state, is_state_batched
+    return jax.lax.scan(switch_function, initial_state, ops_info)[0]
 
 
 def measure_final_state(  # pylint: disable=too-many-arguments
@@ -157,6 +172,29 @@ def measure_final_state(  # pylint: disable=too-many-arguments
     return results
 
 
+def get_final_state_qutrit(circuit, **kwargs):
+    """
+    TODO
+
+    Args:
+        circuit (.QuantumScript): The single circuit to simulate
+
+    Returns:
+        Tuple[TensorLike, bool]: A tuple containing the final state of the quantum script and
+            whether the state has a batch dimension.
+
+    """
+
+    circuit = circuit.map_to_standard_wires()
+
+    prep = None
+    if len(circuit) > 0 and isinstance(circuit[0], qml.operation.StatePrepBase):
+        prep = circuit[0]
+
+    state = jnp.complex128(create_initial_state(sorted(circuit.op_wires), prep, like="jax"))
+    return get_qutrit_final_state_from_initial(circuit.operations[bool(prep) :], state)
+
+
 def simulate(  # pylint: disable=too-many-arguments
     circuit: qml.tape.QuantumScript,
     rng=None,
@@ -195,14 +233,9 @@ def simulate(  # pylint: disable=too-many-arguments
     tensor([0.68117888, 0.        , 0.        , 0.31882112, 0.        , 0.        ], requires_grad=True))
 
     """
-    state, is_state_batched = get_final_state(
+    state = get_final_state_qutrit(
         circuit, debugger=debugger, interface=interface, rng=rng, prng_key=prng_key
     )
     return measure_final_state(
-        circuit,
-        state,
-        is_state_batched,
-        rng=rng,
-        prng_key=prng_key,
-        readout_errors=readout_errors,
+        circuit, state, False, rng=rng, prng_key=prng_key, readout_errors=readout_errors
     )
