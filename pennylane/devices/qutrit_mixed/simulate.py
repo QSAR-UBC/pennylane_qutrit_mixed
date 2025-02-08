@@ -24,6 +24,7 @@ from .sampling import measure_with_samples
 from ..qtcorgi_helper.apply_operations import qutrit_branches
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 INTERFACE_TO_LIKE = {
     # map interfaces known by autoray to themselves
@@ -99,9 +100,9 @@ def get_qutrit_final_state_from_initial(operations, initial_state):
         ops_wires[1].append(wires[1])
 
     ops_info = {
-        "type_indices": jnp.array(ops_type_indices).T,
-        "wires": [jnp.array(ops_wires[0]), jnp.array(ops_wires[1])],
-        "params": [jnp.array(ops_params[0]), jnp.array(ops_params[1]), jnp.array(ops_params[2])],
+        "type_indices": np.array(ops_type_indices).T,
+        "wires": [np.array(ops_wires[0]), np.array(ops_wires[1])],
+        "params": [jnp.array(ops_params[0]), np.array(ops_params[1]), np.array(ops_params[2])],
     }
     branches = qutrit_branches[: 2 + two_qutrit_ops]
 

@@ -15,10 +15,21 @@ alphabet_array = np.array(list(alphabet))
 stack_last = partial(qml.math.stack, axis=-1)
 
 
-@partial(jax.jit, static_argnames=["reverse"])
-def swap_axes(op, start, fin, reverse=False):
+@jax.remat
+def swap_axes(op, start, fin):
     axes = jnp.arange(op.ndim)
-    for s, f in reversed(list(zip(start, fin))) if reverse else zip(start, fin):
+    for s, f in zip(start, fin):
+        axes = axes.at[f].set(s)
+        axes = axes.at[s].set(f)
+    indices = jnp.mgrid[tuple(slice(s) for s in op.shape)]  # TODO can do
+    indices = indices[axes]
+    return op[tuple(indices[i] for i in range(indices.shape[0]))]
+
+
+@jax.remat
+def swap_axes_reverse(op, start, fin):
+    axes = jnp.arange(op.ndim)
+    for s, f in reversed(list(zip(start, fin))):
         axes = axes.at[f].set(s)
         axes = axes.at[s].set(f)
     indices = jnp.mgrid[tuple(slice(s) for s in op.shape)]  # TODO can do
@@ -106,7 +117,7 @@ def apply_operation_einsum(kraus, swap_inds, state, qudit_dim, num_wires):
     state = jnp.einsum(
         kraus, op_1_indices, state, state_indices, kraus_dagger, op_2_indices, new_state_indices
     )
-    return swap_axes(state, *swap_inds, reverse=True)
+    return swap_axes_reverse(state, *swap_inds)
 
 
 @partial(jax.jit, static_argnames=["qudit_dim"])

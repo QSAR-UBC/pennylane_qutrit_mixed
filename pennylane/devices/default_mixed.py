@@ -73,6 +73,17 @@ two_gates = [
 ]
 
 
+def _run_switch(initial_state, ops_info, two_qubit_ops):
+    branches = qubit_branches[: 2 + two_qubit_ops]
+
+    @jax.jit
+    def switch_function(state, op_info):
+        return jax.lax.switch(op_info["type_indices"][0], branches, state, op_info), None
+
+    return jax.lax.scan(switch_function, initial_state, ops_info)[0]
+
+
+
 def get_qubit_final_state_from_initial(operations, initial_state):
     """
     TODO
@@ -124,17 +135,12 @@ def get_qubit_final_state_from_initial(operations, initial_state):
         ops_wires[1].append(wires[1])
 
     ops_info = {
-        "type_indices": jnp.array(ops_type_indices).T,
-        "wires": [jnp.array(ops_wires[0]), jnp.array(ops_wires[1])],
+        "type_indices": np.array(ops_type_indices).T,
+        "wires": [np.array(ops_wires[0]), np.array(ops_wires[1])],
         "param": jnp.array(ops_param),
     }
-    branches = qubit_branches[: 2 + two_qubit_ops]
 
-    @jax.jit
-    def switch_function(state, op_info):
-        return jax.lax.switch(op_info["type_indices"][0], branches, state, op_info), None
-
-    return jax.lax.scan(switch_function, initial_state, ops_info)[0]
+    return jax.jit(_run_switch, static_argnames="two_qubit_ops")(initial_state, ops_info, two_qubit_ops)
 
 
 class DefaultMixed(QubitDevice):
