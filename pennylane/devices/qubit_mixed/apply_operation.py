@@ -536,6 +536,30 @@ def apply_phaseshift(op: qml.PhaseShift, state, is_state_batched: bool = False, 
     return state
 
 
+@apply_operation.register
+def apply_two_qubit_depolarizing(
+    op: qml.TwoQubitDepolarizingChannel, state, is_state_batched: bool = False, debugger=None, **_
+):
+    """TODO requires sorted labels"""
+    num_wires = int((len(math.shape(state)) - is_state_batched) / 2)
+    depolarizing_lambda = (4 / 3) * op.parameters[0]
+    slices_before_wires = [slice(2) for _ in range(op.wires[0] + is_state_batched)]
+    slices_between_wires = [slice(2) for _ in range(op.wires[1] - op.wires[0] - 1)]
+    slices_after_wires = [slice(2) for _ in range(num_wires - op.wires[1] - 1)]
+
+    indices_w1 = [np.array((0, 0, 1, 1))]
+    indices_w2 = [np.array((0, 1, 0, 1))]
+    row_indices = (
+        slices_before_wires + indices_w1 + slices_between_wires + indices_w2 + slices_after_wires
+    )
+    diagonal_of_wires_indices = tuple(row_indices * 2)
+
+    trace_w_12 = state[diagonal_of_wires_indices].sum(axis=0)
+    depol_fact = (depolarizing_lambda / 4) * trace_w_12
+    state *= 1 - depolarizing_lambda
+    return state.at[diagonal_of_wires_indices].add(depol_fact)
+
+
 # !TODO: in the future investigate if there's other missing operations
 # satisfying this condition.
 SYMMETRIC_REAL_OPS = (

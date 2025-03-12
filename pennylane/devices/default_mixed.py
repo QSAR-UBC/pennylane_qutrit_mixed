@@ -135,6 +135,7 @@ operations = {
     "ECR",
     "ParametrizedEvolution",
     "GlobalPhase",
+    "TwoQubitDepolarizing",
 }
 
 

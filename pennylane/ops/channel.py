@@ -23,6 +23,47 @@ from pennylane.operation import AnyWires, Channel
 from pennylane.wires import Wires, WiresLike
 
 
+class TwoQubitDepolarizingChannel(Channel):
+    num_params = 1
+    num_wires = 2
+    grad_method = "F"
+    # grad_recipe = ([[1, 0, 1], [-1, 0, 0]],)
+
+    def __init__(self, p, wires, id=None):
+        super().__init__(p, wires=wires, id=id)
+
+    @staticmethod
+    def compute_kraus_matrices(p):  # pylint:disable=arguments-differ
+        r"""Kraus matrices representing the depolarizing channel.
+
+        Args:
+            p (float): each Pauli gate is applied with probability :math:`\frac{p}{}`
+
+        Returns:
+            list (array): list of Kraus matrices
+        """
+        if not np.is_abstract(p) and not 0.0 <= p <= 1.0:
+            raise ValueError("p must be in the interval [0,1]")
+
+        if np.get_interface(p) == "tensorflow":
+            p = np.cast_like(p, 1j)
+
+        K0 = np.convert_like(np.eye(2, dtype=complex), p)
+        K1 = np.convert_like(np.array([[0, 1], [1, 0]], dtype=complex), p)
+        K2 = np.convert_like(np.array([[0, -1j], [1j, 0]], dtype=complex), p)
+        K3 = np.convert_like(np.array([[1, 0], [0, -1]], dtype=complex), p)
+        one_pauli_matrices = [K0, K1, K2, K3]
+        two_pauli_matrices = []
+        for i in range(4):
+            for j in range(4):
+                two_pauli_matrices.append(jnp.kron(one_pauli_matrices[i], one_pauli_matrices[j]))
+
+        two_qubit_depol_krauses = [jnp.sqrt(1 - p) * jnp.eye(4)]
+        for pauli in two_pauli_matrices[1:]:
+            two_qubit_depol_krauses.append(jnp.sqrt(p / 15) * pauli)
+        return two_qubit_depol_krauses
+
+
 class AmplitudeDamping(Channel):
     r"""
     Single-qubit amplitude damping error channel.
@@ -971,6 +1012,7 @@ __qubit_channels__ = {
     "ResetError",
     "QubitChannel",
     "ThermalRelaxationError",
+    "TwoQubitDepolarizingChannel",
 }
 
 __all__ = list(__qubit_channels__)
