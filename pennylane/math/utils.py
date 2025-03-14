@@ -17,14 +17,13 @@
 import autoray as ar
 import numpy as _np
 import scipy as sp
-
 # pylint: disable=import-outside-toplevel
 from autograd.numpy.numpy_boxes import ArrayBox
 from autoray import numpy as np
+from packaging.version import Version
 
 from . import single_dispatch  # pylint:disable=unused-import
 from .interface_utils import get_interface
-from packaging.version import Version
 
 
 def allequal(tensor1, tensor2, **kwargs):
@@ -387,7 +386,8 @@ def import_should_record_backprop():  # pragma: no cover
     if hasattr(tfpy.eager.tape, "should_record_backprop"):
         from tensorflow.python.eager.tape import should_record_backprop
     elif hasattr(tfpy.eager.tape, "should_record"):
-        from tensorflow.python.eager.tape import should_record as should_record_backprop
+        from tensorflow.python.eager.tape import \
+            should_record as should_record_backprop
     elif hasattr(tfpy.eager.record, "should_record_backprop"):
         from tensorflow.python.eager.record import should_record_backprop
     else:
