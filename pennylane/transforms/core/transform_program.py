@@ -24,7 +24,7 @@ from pennylane.tape import QuantumScriptBatch
 from pennylane.typing import BatchPostprocessingFn, PostprocessingFn, ResultBatch
 
 from .transform_dispatcher import TransformContainer, TransformDispatcher, TransformError
-
+from packaging.version import Version
 CotransformCache = namedtuple("CotransformCache", ("qnode", "args", "kwargs"))
 
 
@@ -119,8 +119,9 @@ def _jax_argnums_to_tape_trainable(qnode, argnums, program, args, kwargs):
     """
     import jax  # pylint: disable=import-outside-toplevel
 
-    with jax.core.take_current_trace() as parent_trace:
-        trace = jax.interpreters.ad.JVPTrace(parent_trace, jax.core.TraceTag())
+    new_jax = Version(jax.__version__) >= Version("0.4.36")
+    with jax.core.take_current_trace() if new_jax else jax.core.new_main(jax.interpreters.ad.JVPTrace) as parent_trace:
+        trace = jax.interpreters.ad.JVPTrace(parent_trace, jax.core.TraceTag() if new_jax else 0)
 
         args_jvp = [
             (
@@ -130,8 +131,13 @@ def _jax_argnums_to_tape_trainable(qnode, argnums, program, args, kwargs):
             )
             for i, arg in enumerate(args)
         ]
-        with jax.core.set_current_trace(trace):
+        if new_jax:
+            with jax.core.set_current_trace(trace):
+                tape = qml.workflow.construct_tape(qnode, level=0)(*args_jvp, **kwargs)
+        else:
             tape = qml.workflow.construct_tape(qnode, level=0)(*args_jvp, **kwargs)
+            del trace
+
     tapes, _ = program((tape,))
     return tuple(tape.get_parameters(trainable_only=False) for tape in tapes)
 
