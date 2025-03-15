@@ -71,8 +71,8 @@ ipython-genutils==0.2.0
 ipywidgets==7.8.5
 isoduration==20.11.0
 isort==5.13.2
-jax==0.4.28
-jaxlib==0.4.28
+jax==0.4.38
+jaxlib==0.4.38
 jedi==0.19.2
 Jinja2==3.1.6
 json5==0.10.0
