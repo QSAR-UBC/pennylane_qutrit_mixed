@@ -42,14 +42,34 @@ def create_initial_state(
     num_wires = len(wires)
 
     if not prep_operation:
-        rho = _create_basis_state(num_wires, 0)
+        return qml.math.asarray(_create_basis_state(num_wires, 0), like=like)
 
+    is_state_batched = True
+    if isinstance(prep_operation, qml.QubitDensityMatrix):
+        rho = prep_operation.data
     else:
-        rho = _apply_state_vector(prep_operation.state_vector(wire_order=wires), num_wires)
+        rho, batch_size = _apply_state_vector(
+            prep_operation.state_vector(wire_order=wires), num_wires
+        )
 
-    # TODO: add instance for prep_operations as added
+    return _post_process(rho, num_axes, like, is_state_batched)
 
-    return qml.math.asarray(rho, like=like)
+
+def _post_process(rho, num_axes, like, is_state_batched=True):
+    r"""
+    This post-processor is necessary to ensure that the density matrix is in
+    the correct format, i.e. the original tensor form, instead of the pure
+    matrix form, as requested by all the other more fundamental chore functions
+    in the module (again from some legacy code).
+    """
+    rho = math.reshape(rho, (-1,) + (3,) * num_axes)
+    dtype = str(rho.dtype)
+    floating_single = "float32" in dtype or "complex64" in dtype
+    dtype = "complex64" if floating_single else "complex128"
+    dtype = "complex128" if like == "tensorflow" else dtype
+    if not is_state_batched:
+        rho = math.reshape(rho, (2,) * num_axes)
+    return math.cast(math.asarray(rho, like=like), dtype)
 
 
 def _apply_state_vector(state, num_wires):  # function is easy to abstract for qudit
@@ -67,8 +87,12 @@ def _apply_state_vector(state, num_wires):  # function is easy to abstract for q
     """
 
     # Initialize the entire set of wires with the state
-    rho = qml.math.outer(state, qml.math.conj(state))
-    return qml.math.reshape(rho, [QUDIT_DIM] * 2 * num_wires)
+    batch_size = math.get_batch_size(
+        state, expected_shape=(2,) * num_wires, expected_size=2**num_wires
+    )  # don't assume the expected shape to be fixed
+    if batch_size is None:
+        return _flatten_outer(pure_state), False
+    return math.stack([_flatten_outer(s) for s in pure_state]), True
 
 
 def _create_basis_state(num_wires, index):  # function is easy to abstract for qudit
