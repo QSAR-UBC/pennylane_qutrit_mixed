@@ -18,8 +18,9 @@ with preparing a certain state on the qutrit device.
 # pylint: disable=arguments-differ
 import numpy as np
 
-from pennylane import math, QubitDensityMatrix
+from pennylane import math
 from pennylane.operation import StatePrepBase
+from pennylane.ops.qubit.state_preparation import QubitDensityMatrix
 from pennylane.templates.state_preparations import QutritBasisStatePreparation
 from pennylane.wires import WireError, Wires
 
