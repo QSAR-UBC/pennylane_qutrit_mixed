@@ -74,7 +74,7 @@ class TestInitializeState:
         num_wires = len(wires)
         state_correct = np.zeros((2, 2) * num_wires, dtype=complex)
         state_correct[(0, 0) * num_wires] = 1
-        state_correct = math.asarray(dm, like=interface)
+        state_correct = math.asarray(state_correct, like=interface)
         prep_op = qml.QutritDensityMatrix(math.array(state_correct, like=interface), wires=wires)
         state = create_initial_state(wires, prep_operation=prep_op, like=interface)
         assert math.allequal(state, state_correct)
