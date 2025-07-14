@@ -12,17 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Contains a function extracting the tapes at postprocessing at any stage of a transform program."""
+
+from __future__ import annotations
+
 import inspect
 from collections.abc import Callable
-from contextlib import nullcontext
 from functools import wraps
-from typing import Literal, Union
+from typing import TYPE_CHECKING, Literal, Optional
 
 import pennylane as qml
-from pennylane.tape import QuantumScriptBatch
-from pennylane.typing import PostprocessingFn
 
-from .qnode import QNode, _make_execution_config
+from .qnode import _make_execution_config
+
+if TYPE_CHECKING:
+    from pennylane.qnn.torch import TorchLayer
+    from pennylane.tape import QuantumScriptBatch
+    from pennylane.typing import PostprocessingFn
+
+    from .qnode import QNode
 
 
 def null_postprocessing(results):
@@ -51,7 +58,7 @@ def expand_fn_transform(expand_fn: Callable) -> "qml.transforms.core.TransformDi
     def wrapped_expand_fn(tape, *args, **kwargs):
         return (expand_fn(tape, *args, **kwargs),), null_postprocessing
 
-    return qml.transform(wrapped_expand_fn)
+    return qml.transforms.transform(wrapped_expand_fn)
 
 
 def _get_full_transform_program(
@@ -75,7 +82,7 @@ def _get_full_transform_program(
 
 
 def get_transform_program(
-    qnode: "QNode", level=None, gradient_fn="unset"
+    qnode: QNode, level=None, gradient_fn="unset"
 ) -> "qml.transforms.core.TransformProgram":
     """Extract a transform program at a designated level.
 
@@ -229,8 +236,8 @@ def get_transform_program(
 
 
 def construct_batch(
-    qnode: Union[QNode, "qml.qnn.KerasLayer", "qml.qnn.TorchLayer"],
-    level: Union[Literal["top", "user", "device", "gradient"], int, slice, None] = "user",
+    qnode: QNode | TorchLayer,
+    level: Optional[Literal["top", "user", "device", "gradient"] | int | slice] = "user",
 ) -> Callable:
     """Construct the batch of tapes and post processing for a designated stage in the transform program.
 
@@ -330,7 +337,6 @@ def construct_batch(
 
     """
 
-    # pylint: disable=protected-access
     def batch_constructor(*args, **kwargs) -> tuple[QuantumScriptBatch, PostprocessingFn]:
         """Create a batch of tapes and a post processing function."""
         if "shots" in inspect.signature(qnode.func).parameters:
@@ -338,35 +344,16 @@ def construct_batch(
         else:
             shots = kwargs.pop("shots", qnode.device.shots)
 
-        context_fn = nullcontext
-
-        if type(qnode).__name__ == "KerasLayer":
-            # note that calling qml.qnn.KerasLayer pulls in a tf import
-            # pylint: disable=import-outside-toplevel
-            import tensorflow as tf
-
-            context_fn = tf.GradientTape
-
-        elif type(qnode).__name__ == "TorchLayer":
+        if type(qnode).__name__ == "TorchLayer":
             # avoid triggering import of torch if its not needed.
             x = args[0]
             kwargs = {
                 **{arg: weight.to(x) for arg, weight in qnode.qnode_weights.items()},
             }
 
-        with context_fn() as cntxt:
-            # If TF tape, use the watch function
-            if hasattr(cntxt, "watch"):
-                cntxt.watch(list(qnode.qnode_weights.values()))
-
-                kwargs = {
-                    **{k: 1.0 * w for k, w in qnode.qnode_weights.items()},
-                    **kwargs,
-                }
-
-            initial_tape = qml.tape.make_qscript(qnode.func, shots=shots)(*args, **kwargs)
-            params = initial_tape.get_parameters(trainable_only=False)
-            initial_tape.trainable_params = qml.math.get_trainable_indices(params)
+        initial_tape = qml.tape.make_qscript(qnode.func, shots=shots)(*args, **kwargs)
+        params = initial_tape.get_parameters(trainable_only=False)
+        initial_tape.trainable_params = qml.math.get_trainable_indices(params)
 
         config = qml.workflow.construct_execution_config(qnode, resolve=False)(*args, **kwargs)
         # pylint: disable = protected-access

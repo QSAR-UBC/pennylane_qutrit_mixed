@@ -16,7 +16,6 @@ This file contains the implementation of the Prod class which contains logic for
 computing the product between operations.
 """
 import itertools
-import warnings
 from copy import copy
 from functools import reduce, wraps
 from itertools import combinations
@@ -55,7 +54,8 @@ def prod(*ops, id=None, lazy=True):
 
     Keyword Args:
         id (str or None): id for the product operator. Default is None.
-        lazy=True (bool): If ``lazy=False``, a simplification will be performed such that when any of the operators is already a product operator, its operands will be used instead.
+        lazy=True (bool): If ``lazy=False``, a simplification will be performed such that when any
+            of the operators is already a product operator, its operands will be used instead.
 
     Returns:
         ~ops.op_math.Prod: the operator representing the product.
@@ -97,6 +97,9 @@ def prod(*ops, id=None, lazy=True):
     >>> prod_op = prod(qfunc)(1.1)
     >>> prod_op
     CNOT(wires=[0, 1]) @ RX(1.1, wires=[0])
+
+
+    Notice how the order in the output appears reversed. However, this is correct because the operators are applied from right to left.
     """
     if len(ops) == 1:
         if isinstance(ops[0], qml.operation.Operator):
@@ -249,18 +252,6 @@ class Prod(CompositeOp):
     @property
     def has_decomposition(self):
         return True
-
-    @property
-    def obs(self):
-        r"""Access the operands of a ``Prod`` instance"""
-        # This is temporary property to smoothen the transition to the new operator arithmetic system.
-        # In particular, the __matmul__ (@ python operator) method between operators now generates Prod instead of Tensor instances.
-        warnings.warn(
-            "Accessing the terms of a tensor product operator via op.obs is deprecated and will be removed "
-            "in Pennylane v0.42. Instead, please use op.operands.",
-            qml.PennyLaneDeprecationWarning,
-        )
-        return self.operands
 
     def decomposition(self):
         r"""Decomposition of the product operator is given by each factor applied in succession.
@@ -476,36 +467,6 @@ class Prod(CompositeOp):
                 ops.append(factor)
         return coeffs, ops
 
-    @property
-    def coeffs(self):
-        r"""
-        Scalar coefficients of the operator when flattened out.
-
-        This is a deprecated attribute, please use :meth:`~Prod.terms` instead.
-
-        .. seealso:: :attr:`~Prod.ops`, :class:`~Prod.pauli_rep`"""
-        warnings.warn(
-            "Prod.coeffs is deprecated and will be removed in Pennylane v0.42. You can access both (coeffs, ops) via op.terms(). Also consider using op.operands.",
-            qml.PennyLaneDeprecationWarning,
-        )
-        coeffs, _ = self.terms()
-        return coeffs
-
-    @property
-    def ops(self):
-        r"""
-        Operator terms without scalar coefficients of the operator when flattened out.
-
-        This is a deprecated attribute, please use :meth:`~Prod.terms` instead.
-
-        .. seealso:: :attr:`~Prod.coeffs`, :class:`~Prod.pauli_rep`"""
-        warnings.warn(
-            "Prod.ops is deprecated and will be removed in Pennylane v0.42. You can access both (coeffs, ops) via op.terms() Also consider op.operands.",
-            qml.PennyLaneDeprecationWarning,
-        )
-        _, ops = self.terms()
-        return ops
-
 
 def _swappable_ops(op1, op2, wire_map: dict = None) -> bool:
     """Boolean expression that indicates if op1 and op2 don't have intersecting wires and if they
@@ -679,7 +640,7 @@ class _ProductFactorsGrouping:
             if pauli_word != "Identity":
                 pauli_op = self._paulis[pauli_word](wire)
                 self._factors += ((pauli_op,),)
-                self.global_phase *= pauli_coeff
+            self.global_phase *= pauli_coeff
 
     def remove_factors(self, wires: list[int]):
         """Remove all factors from the ``self._pauli_factors`` and ``self._non_pauli_factors``

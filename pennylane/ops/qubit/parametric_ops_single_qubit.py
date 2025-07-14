@@ -16,7 +16,7 @@
 This submodule contains the discrete-variable quantum operations that are the
 core parametrized gates.
 """
-# pylint:disable=abstract-method,arguments-differ,protected-access,invalid-overridden-method
+# pylint: disable=arguments-differ
 import functools
 from typing import Optional, Union
 
@@ -24,6 +24,17 @@ import numpy as np
 import scipy as sp
 
 import pennylane as qml
+from pennylane.decomposition import (
+    add_decomps,
+    register_condition,
+    register_resources,
+    resource_rep,
+)
+from pennylane.decomposition.symbolic_decomposition import (
+    adjoint_rotation,
+    flip_zero_control,
+    pow_rotation,
+)
 from pennylane.operation import Operation
 from pennylane.typing import TensorLike
 from pennylane.wires import WiresLike
@@ -71,15 +82,22 @@ class RX(Operation):
     ndim_params = (0,)
     """tuple[int]: Number of dimensions per trainable parameter that the operator depends on."""
 
+    resource_keys = set()
+
     basis = "X"
     grad_method = "A"
     parameter_frequencies = [(1,)]
+    resource_keys = set()
 
     def generator(self) -> "qml.Hamiltonian":
         return qml.Hamiltonian([-0.5], [PauliX(wires=self.wires)])
 
     def __init__(self, phi: TensorLike, wires: WiresLike, id: Optional[str] = None):
         super().__init__(phi, wires=wires, id=id)
+
+    @property
+    def resource_params(self) -> dict:
+        return {}
 
     @staticmethod
     def compute_matrix(theta: TensorLike) -> TensorLike:  # pylint: disable=arguments-differ
@@ -146,6 +164,64 @@ class RX(Operation):
         return [pi_half, self.data[0], -pi_half]
 
 
+def _rx_to_rot_resources():
+    return {qml.Rot: 1}
+
+
+@register_resources(_rx_to_rot_resources)
+def _rx_to_rot(phi, wires: WiresLike, **__):
+    qml.Rot(np.pi / 2, phi, 3.5 * np.pi, wires=wires)
+
+
+def _rx_to_rz_ry_resources():
+    return {qml.RZ: 2, qml.RY: 1}
+
+
+@register_resources(_rx_to_rz_ry_resources)
+def _rx_to_rz_ry(phi, wires: WiresLike, **__):
+    qml.RZ(np.pi / 2, wires=wires)
+    qml.RY(phi, wires=wires)
+    qml.RZ(-np.pi / 2, wires=wires)
+
+
+add_decomps(RX, _rx_to_rot, _rx_to_rz_ry)
+add_decomps("Adjoint(RX)", adjoint_rotation)
+add_decomps("Pow(RX)", pow_rotation)
+
+
+def _controlled_rx_resource(*_, num_control_wires, num_work_wires, work_wire_type, **__):
+    if num_control_wires == 1:
+        return {qml.CRX: 1}
+    return {
+        qml.H: 2,
+        qml.RZ: 2,
+        resource_rep(
+            qml.MultiControlledX,
+            num_control_wires=num_control_wires,
+            num_zero_control_values=0,
+            num_work_wires=num_work_wires,
+            work_wire_type=work_wire_type,
+        ): 2,
+    }
+
+
+@register_resources(_controlled_rx_resource)
+def _controlled_rx_decomp(*params, wires, control_wires, work_wires, work_wire_type, **__):
+    if len(control_wires) == 1:
+        qml.CRX(*params, wires=wires)
+        return
+
+    qml.H(wires=wires[-1])
+    qml.RZ(params[0] / 2, wires=wires[-1])
+    qml.MultiControlledX(wires=wires, work_wires=work_wires, work_wire_type=work_wire_type)
+    qml.RZ(-params[0] / 2, wires=wires[-1])
+    qml.MultiControlledX(wires=wires, work_wires=work_wires, work_wire_type=work_wire_type)
+    qml.H(wires=wires[-1])
+
+
+add_decomps("C(RX)", flip_zero_control(_controlled_rx_decomp))
+
+
 class RY(Operation):
     r"""
     The single qubit Y rotation
@@ -179,12 +255,17 @@ class RY(Operation):
     basis = "Y"
     grad_method = "A"
     parameter_frequencies = [(1,)]
+    resource_keys = set()
 
     def generator(self) -> "qml.Hamiltonian":
         return qml.Hamiltonian([-0.5], [PauliY(wires=self.wires)])
 
     def __init__(self, phi: TensorLike, wires: WiresLike, id: Optional[str] = None):
         super().__init__(phi, wires=wires, id=id)
+
+    @property
+    def resource_params(self) -> dict:
+        return {}
 
     @staticmethod
     def compute_matrix(theta: TensorLike) -> TensorLike:  # pylint: disable=arguments-differ
@@ -250,6 +331,61 @@ class RY(Operation):
         return [0.0, self.data[0], 0.0]
 
 
+def _ry_to_rot_resources():
+    return {qml.Rot: 1}
+
+
+@register_resources(_ry_to_rot_resources)
+def _ry_to_rot(phi, wires: WiresLike, **__):
+    qml.Rot(0, phi, 0, wires=wires)
+
+
+def _ry_to_rz_rx_resources():
+    return {qml.RZ: 2, qml.RX: 1}
+
+
+@register_resources(_ry_to_rz_rx_resources)
+def _ry_to_rz_rx(phi, wires: WiresLike, **__):
+    qml.RZ(-np.pi / 2, wires=wires)
+    qml.RX(phi, wires=wires)
+    qml.RZ(np.pi / 2, wires=wires)
+
+
+add_decomps(RY, _ry_to_rot, _ry_to_rz_rx)
+add_decomps("Adjoint(RY)", adjoint_rotation)
+add_decomps("Pow(RY)", pow_rotation)
+
+
+def _controlled_ry_resource(*_, num_control_wires, num_work_wires, work_wire_type, **__):
+    if num_control_wires == 1:
+        return {qml.CRY: 1}
+    return {
+        qml.RY: 2,
+        resource_rep(
+            qml.MultiControlledX,
+            num_control_wires=num_control_wires,
+            num_zero_control_values=0,
+            num_work_wires=num_work_wires,
+            work_wire_type=work_wire_type,
+        ): 2,
+    }
+
+
+@register_resources(_controlled_ry_resource)
+def _controlled_ry_decomp(*params, wires, control_wires, work_wires, work_wire_type, **__):
+    if len(control_wires) == 1:
+        qml.CRY(*params, wires=wires)
+        return
+
+    qml.RY(params[0] / 2, wires=wires[-1])
+    qml.MultiControlledX(wires=wires, work_wires=work_wires, work_wire_type=work_wire_type)
+    qml.RY(-params[0] / 2, wires=wires[-1])
+    qml.MultiControlledX(wires=wires, work_wires=work_wires, work_wire_type=work_wire_type)
+
+
+add_decomps("C(RY)", flip_zero_control(_controlled_ry_decomp))
+
+
 class RZ(Operation):
     r"""
     The single qubit Z rotation
@@ -279,6 +415,8 @@ class RZ(Operation):
 
     ndim_params = (0,)
     """tuple[int]: Number of dimensions per trainable parameter that the operator depends on."""
+
+    resource_keys = set()
 
     basis = "Z"
     grad_method = "A"
@@ -373,6 +511,10 @@ class RZ(Operation):
     def adjoint(self) -> "RZ":
         return RZ(-self.data[0], wires=self.wires)
 
+    @property
+    def resource_params(self) -> dict:
+        return {}
+
     def pow(self, z: Union[int, float]) -> list["qml.operation.Operator"]:
         return [RZ(self.data[0] * z, wires=self.wires)]
 
@@ -390,6 +532,61 @@ class RZ(Operation):
     def single_qubit_rot_angles(self) -> list[TensorLike]:
         # RZ(\theta) = RZ(\theta) RY(0) RZ(0)
         return [self.data[0], 0.0, 0.0]
+
+
+def _rz_to_rot_resources():
+    return {qml.Rot: 1}
+
+
+@register_resources(_rz_to_rot_resources)
+def _rz_to_rot(phi, wires: WiresLike, **__):
+    qml.Rot(0, 0, phi, wires=wires)
+
+
+def _rz_to_ry_rx_resources():
+    return {qml.RY: 2, qml.RX: 1}
+
+
+@register_resources(_rz_to_ry_rx_resources)
+def _rz_to_ry_rx(phi, wires: WiresLike, **__):
+    qml.RY(np.pi / 2, wires=wires)
+    qml.RX(phi, wires=wires)
+    qml.RY(-np.pi / 2, wires=wires)
+
+
+add_decomps(RZ, _rz_to_rot, _rz_to_ry_rx)
+add_decomps("Adjoint(RZ)", adjoint_rotation)
+add_decomps("Pow(RZ)", pow_rotation)
+
+
+def _controlled_rz_resource(*_, num_control_wires, num_work_wires, work_wire_type, **__):
+    if num_control_wires == 1:
+        return {qml.CRZ: 1}
+    return {
+        qml.RZ: 2,
+        resource_rep(
+            qml.MultiControlledX,
+            num_control_wires=num_control_wires,
+            num_zero_control_values=0,
+            num_work_wires=num_work_wires,
+            work_wire_type=work_wire_type,
+        ): 2,
+    }
+
+
+@register_resources(_controlled_rz_resource)
+def _controlled_rz_decomp(*params, wires, control_wires, work_wires, work_wire_type, **__):
+    if len(control_wires) == 1:
+        qml.CRZ(*params, wires=wires)
+        return
+
+    qml.RZ(params[0] / 2, wires=wires[-1])
+    qml.MultiControlledX(wires=wires, work_wires=work_wires, work_wire_type=work_wire_type)
+    qml.RZ(-params[0] / 2, wires=wires[-1])
+    qml.MultiControlledX(wires=wires, work_wires=work_wires, work_wire_type=work_wire_type)
+
+
+add_decomps("C(RZ)", flip_zero_control(_controlled_rz_decomp))
 
 
 class PhaseShift(Operation):
@@ -422,9 +619,15 @@ class PhaseShift(Operation):
     ndim_params = (0,)
     """tuple[int]: Number of dimensions per trainable parameter that the operator depends on."""
 
+    resource_keys = set()
+
     basis = "Z"
     grad_method = "A"
     parameter_frequencies = [(1,)]
+
+    @property
+    def resource_params(self) -> dict:
+        return {}
 
     def generator(self) -> "qml.Projector":
         return qml.Projector(np.array([1]), wires=self.wires)
@@ -526,7 +729,7 @@ class PhaseShift(Operation):
         .. seealso:: :meth:`~.PhaseShift.decomposition`.
 
         Args:
-            phi (float): rotation angle :math:`\phi`
+            phi (TensorLike): rotation angle :math:`\phi`
             wires (Any, Wires): wires that the operator acts on
 
         Returns:
@@ -560,6 +763,60 @@ class PhaseShift(Operation):
     def single_qubit_rot_angles(self) -> list[TensorLike]:
         # PhaseShift(\theta) = RZ(\theta) RY(0) RZ(0)
         return [self.data[0], 0.0, 0.0]
+
+
+def _phaseshift_to_rz_gp_resources():
+    return {qml.RZ: 1, qml.GlobalPhase: 1}
+
+
+@register_resources(_phaseshift_to_rz_gp_resources)
+def _phaseshift_to_rz_gp(phi, wires: WiresLike, **__):
+    RZ(phi, wires=wires)
+    qml.GlobalPhase(-phi / 2)
+
+
+add_decomps(PhaseShift, _phaseshift_to_rz_gp)
+add_decomps("Adjoint(PhaseShift)", adjoint_rotation)
+add_decomps("Pow(PhaseShift)", pow_rotation)
+
+
+def _controlled_phaseshift_condition(*_, num_control_wires, num_work_wires, work_wire_type, **__):
+    return num_control_wires == 1 or (num_work_wires > 0 and work_wire_type == "clean")
+
+
+def _controlled_phaseshift_resource(*_, num_control_wires, num_work_wires, work_wire_type, **__):
+    if num_control_wires == 1:
+        return {qml.ControlledPhaseShift: 1}
+    return {
+        resource_rep(
+            qml.MultiControlledX,
+            num_control_wires=num_control_wires,
+            num_zero_control_values=0,
+            num_work_wires=num_work_wires - 1,
+            work_wire_type=work_wire_type,
+        ): 2,
+        qml.ControlledPhaseShift: 1,
+    }
+
+
+@register_condition(_controlled_phaseshift_condition)
+@register_resources(_controlled_phaseshift_resource)
+def _controlled_phase_shift_decomp(*params, wires, control_wires, work_wires, work_wire_type, **__):
+
+    if len(control_wires) == 1:
+        qml.ControlledPhaseShift(*params, wires=wires)
+        return
+
+    qml.MultiControlledX(
+        wires=wires[:-1] + work_wires[0], work_wires=work_wires[1:], work_wire_type=work_wire_type
+    )
+    qml.ControlledPhaseShift(*params, wires=[work_wires[0], wires[-1]])
+    qml.MultiControlledX(
+        wires=wires[:-1] + work_wires[0], work_wires=work_wires[1:], work_wire_type=work_wire_type
+    )
+
+
+add_decomps("C(PhaseShift)", flip_zero_control(_controlled_phase_shift_decomp))
 
 
 class Rot(Operation):
@@ -602,8 +859,12 @@ class Rot(Operation):
     ndim_params = (0, 0, 0)
     """tuple[int]: Number of dimensions per trainable parameter that the operator depends on."""
 
+    resource_keys = set()
+
     grad_method = "A"
     parameter_frequencies = [(1,), (1,), (1,)]
+
+    resource_keys = set()
 
     # pylint: disable=too-many-positional-arguments
     def __init__(
@@ -616,12 +877,16 @@ class Rot(Operation):
     ):
         super().__init__(phi, theta, omega, wires=wires, id=id)
 
+    @property
+    def resource_params(self) -> dict:
+        return {}
+
     @staticmethod
     def compute_matrix(
         phi: TensorLike,
         theta: TensorLike,
         omega: TensorLike,
-    ) -> TensorLike:  # pylint: disable=arguments-differ
+    ) -> TensorLike:
         r"""Representation of the operator as a canonical matrix in the computational basis (static method).
 
         The canonical matrix is the textbook matrix representation that does not consider wires.
@@ -745,6 +1010,65 @@ class Rot(Operation):
         return Rot(p0, p1, p2, wires=self.wires)
 
 
+def _rot_to_rz_ry_rz_resources():
+    return {qml.RZ: 2, qml.RY: 1}
+
+
+@register_resources(_rot_to_rz_ry_rz_resources)
+def _rot_to_rz_ry_rz(phi, theta, omega, wires: WiresLike, **__):
+    RZ(phi, wires=wires)
+    RY(theta, wires=wires)
+    RZ(omega, wires=wires)
+
+
+add_decomps(Rot, _rot_to_rz_ry_rz)
+
+
+@register_resources({Rot: 1})
+def _adjoint_rot(phi, theta, omega, wires, **__):
+    Rot(-omega, -theta, -phi, wires=wires)
+
+
+add_decomps("Adjoint(Rot)", _adjoint_rot)
+
+
+def _controlled_rot_resource(*_, num_control_wires, num_work_wires, work_wire_type, **__):
+    if num_control_wires == 1:
+        return {qml.CRot: 1}
+    return {
+        qml.RZ: 3,
+        qml.RY: 2,
+        resource_rep(
+            qml.MultiControlledX,
+            num_control_wires=num_control_wires,
+            num_zero_control_values=0,
+            num_work_wires=num_work_wires,
+            work_wire_type=work_wire_type,
+        ): 2,
+    }
+
+
+@register_resources(_controlled_rot_resource)
+def _controlled_rot_decomp(
+    phi, theta, omega, wires, control_wires, work_wires, work_wire_type, **_
+):
+
+    if len(control_wires) == 1:
+        qml.CRot(phi, theta, omega, wires=wires)
+        return
+
+    qml.RZ((phi - omega) / 2, wires=wires[-1])
+    qml.MultiControlledX(wires=wires, work_wires=work_wires, work_wire_type=work_wire_type)
+    qml.RZ(-(phi + omega) / 2, wires=wires[-1])
+    qml.RY(-theta / 2, wires=wires[-1])
+    qml.MultiControlledX(wires=wires, work_wires=work_wires, work_wire_type=work_wire_type)
+    qml.RY(theta / 2, wires=wires[-1])
+    qml.RZ(omega, wires=wires[-1])
+
+
+add_decomps("C(Rot)", flip_zero_control(_controlled_rot_decomp))
+
+
 class U1(Operation):
     r"""
     U1 gate.
@@ -782,11 +1106,17 @@ class U1(Operation):
     grad_method = "A"
     parameter_frequencies = [(1,)]
 
+    resource_keys = set()
+
     def generator(self) -> "qml.Projector":
         return qml.Projector(np.array([1]), wires=self.wires)
 
     def __init__(self, phi: TensorLike, wires: WiresLike, id: Optional[str] = None):
         super().__init__(phi, wires=wires, id=id)
+
+    @property
+    def resource_params(self) -> dict:
+        return {}
 
     @staticmethod
     def compute_matrix(phi: TensorLike) -> TensorLike:  # pylint: disable=arguments-differ
@@ -834,7 +1164,7 @@ class U1(Operation):
         .. seealso:: :meth:`~.U1.decomposition`.
 
         Args:
-            phi (float): rotation angle :math:`\phi`
+            phi (TensorLike): rotation angle :math:`\phi`
             wires (Any, Wires): Wire that the operator acts on.
 
         Returns:
@@ -861,6 +1191,20 @@ class U1(Operation):
             return qml.Identity(wires=self.wires)
 
         return U1(phi, wires=self.wires)
+
+
+def _u1_phaseshift_resources():
+    return {PhaseShift: 1}
+
+
+@register_resources(_u1_phaseshift_resources)
+def _u1_phaseshift(phi, wires, **__):
+    PhaseShift(phi, wires=wires)
+
+
+add_decomps(U1, _u1_phaseshift)
+add_decomps("Adjoint(U1)", adjoint_rotation)
+add_decomps("Pow(U1)", pow_rotation)
 
 
 class U2(Operation):
@@ -910,15 +1254,19 @@ class U2(Operation):
     grad_method = "A"
     parameter_frequencies = [(1,), (1,)]
 
+    resource_keys = set()
+
     def __init__(
         self, phi: TensorLike, delta: TensorLike, wires: WiresLike, id: Optional[str] = None
     ):
         super().__init__(phi, delta, wires=wires, id=id)
 
+    @property
+    def resource_params(self) -> dict:
+        return {}
+
     @staticmethod
-    def compute_matrix(
-        phi: TensorLike, delta: TensorLike
-    ) -> TensorLike:  # pylint: disable=arguments-differ
+    def compute_matrix(phi: TensorLike, delta: TensorLike) -> TensorLike:
         r"""Representation of the operator as a canonical matrix in the computational basis (static method).
 
         The canonical matrix is the textbook matrix representation that does not consider wires.
@@ -965,8 +1313,8 @@ class U2(Operation):
         .. seealso:: :meth:`~.U2.decomposition`.
 
         Args:
-            phi (float): azimuthal angle :math:`\phi`
-            delta (float): quantum phase :math:`\delta`
+            phi (TensorLike): azimuthal angle :math:`\phi`
+            delta (TensorLike): quantum phase :math:`\delta`
             wires (Iterable, Wires): the subsystem the gate acts on
 
         Returns:
@@ -1007,6 +1355,31 @@ class U2(Operation):
             return RX(3 * np.pi / 2, wires=wires)
 
         return U2(phi, delta, wires=wires)
+
+
+def _u2_phaseshift_rot_resources():
+    return {PhaseShift: 2, Rot: 1}
+
+
+@register_resources(_u2_phaseshift_rot_resources)
+def _u2_phaseshift_rot(phi, delta, wires, **__):
+    pi_half = qml.math.ones_like(delta) * (np.pi / 2)
+    Rot(delta, pi_half, -delta, wires=wires)
+    PhaseShift(delta, wires=wires)
+    PhaseShift(phi, wires=wires)
+
+
+add_decomps(U2, _u2_phaseshift_rot)
+
+
+@register_resources({U2: 1})
+def _adjoint_u2(phi, delta, wires, **__):
+    new_delta = qml.math.mod((np.pi - phi), (2 * np.pi))
+    new_phi = qml.math.mod((np.pi - delta), (2 * np.pi))
+    U2(new_phi, new_delta, wires=wires)
+
+
+add_decomps("Adjoint(U2)", _adjoint_u2)
 
 
 class U3(Operation):
@@ -1057,6 +1430,8 @@ class U3(Operation):
     grad_method = "A"
     parameter_frequencies = [(1,), (1,), (1,)]
 
+    resource_keys = set()
+
     # pylint: disable=too-many-positional-arguments
     def __init__(
         self,
@@ -1068,10 +1443,12 @@ class U3(Operation):
     ):
         super().__init__(theta, phi, delta, wires=wires, id=id)
 
+    @property
+    def resource_params(self) -> dict:
+        return {}
+
     @staticmethod
-    def compute_matrix(
-        theta: TensorLike, phi: TensorLike, delta: TensorLike
-    ) -> TensorLike:  # pylint: disable=arguments-differ
+    def compute_matrix(theta: TensorLike, phi: TensorLike, delta: TensorLike) -> TensorLike:
         r"""Representation of the operator as a canonical matrix in the computational basis (static method).
 
         The canonical matrix is the textbook matrix representation that does not consider wires.
@@ -1133,9 +1510,9 @@ class U3(Operation):
         .. seealso:: :meth:`~.U3.decomposition`.
 
         Args:
-            theta (float): polar angle :math:`\theta`
-            phi (float): azimuthal angle :math:`\phi`
-            delta (float): quantum phase :math:`\delta`
+            theta (TensorLike): polar angle :math:`\theta`
+            phi (TensorLike): azimuthal angle :math:`\phi`
+            delta (TensorLike): quantum phase :math:`\delta`
             wires (Iterable, Wires): the subsystem the gate acts on
 
         Returns:
@@ -1189,3 +1566,27 @@ class U3(Operation):
             return RY(p0, wires=wires)
 
         return U3(p0, p1, p2, wires=wires)
+
+
+def _u3_phaseshift_rot_resources():
+    return {PhaseShift: 2, Rot: 1}
+
+
+@register_resources(_u3_phaseshift_rot_resources)
+def _u3_phaseshift_rot(theta, phi, delta, wires, **__):
+    Rot(delta, theta, -delta, wires=wires)
+    PhaseShift(delta, wires=wires)
+    PhaseShift(phi, wires=wires)
+
+
+add_decomps(U3, _u3_phaseshift_rot)
+
+
+@register_resources({U3: 1})
+def _adjoint_u3(theta, phi, delta, wires, **__):
+    new_delta = qml.math.mod((np.pi - phi), (2 * np.pi))
+    new_phi = qml.math.mod((np.pi - delta), (2 * np.pi))
+    U3(theta, new_phi, new_delta, wires=wires)
+
+
+add_decomps("Adjoint(U3)", _adjoint_u3)
