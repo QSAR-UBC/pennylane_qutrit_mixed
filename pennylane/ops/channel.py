@@ -80,8 +80,8 @@ class AmplitudeDamping(Channel):
         [array([[1., 0.], [0., 0.70710678]]),
          array([[0., 0.70710678], [0., 0.]])]
         """
-        if not np.is_abstract(gamma) and not 0.0 <= gamma <= 1.0:
-            raise ValueError("gamma must be in the interval [0,1].")
+        # if not np.is_abstract(gamma) and not 0.0 <= gamma <= 1.0:
+        #     raise ValueError("gamma must be in the interval [0,1].")
 
         K0 = np.diag([1, np.sqrt(1 - gamma + np.eps)])
         K1 = np.sqrt(gamma + np.eps) * np.convert_like(
@@ -238,8 +238,8 @@ class PhaseDamping(Channel):
         [array([[1.        , 0.        ], [0.        , 0.70710678]]),
          array([[0.        , 0.        ], [0.        , 0.70710678]])]
         """
-        if not np.is_abstract(gamma) and not 0.0 <= gamma <= 1.0:
-            raise ValueError("gamma must be in the interval [0,1].")
+        # if not np.is_abstract(gamma) and not 0.0 <= gamma <= 1.0:
+        #     raise ValueError("gamma must be in the interval [0,1].")
 
         K0 = np.diag([1, np.sqrt(1 - gamma + np.eps)])
         K1 = np.diag([0, np.sqrt(gamma + np.eps)])
@@ -327,8 +327,8 @@ class DepolarizingChannel(Channel):
          array([[0.+0.j        , 0.-0.40824829j], [0.+0.40824829j, 0.+0.j        ]]),
          array([[ 0.40824829,  0.        ], [ 0.        , -0.40824829]])]
         """
-        if not np.is_abstract(p) and not 0.0 <= p <= 1.0:
-            raise ValueError("p must be in the interval [0,1]")
+        # if not np.is_abstract(p) and not 0.0 <= p <= 1.0:
+        #     raise ValueError("p must be in the interval [0,1]")
 
         if np.get_interface(p) == "tensorflow":
             p = np.cast_like(p, 1j)

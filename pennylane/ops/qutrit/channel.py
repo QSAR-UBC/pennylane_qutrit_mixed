@@ -186,8 +186,8 @@ class QutritDepolarizingChannel(Channel):
          [ 0.25 +0.j   ,  0.   +0.j   ,  0.   +0.j   ],
          [ 0.   +0.j   , -0.125-0.217j,  0.   +0.j   ]]])
         """
-        if not math.is_abstract(p) and not 0.0 <= p <= 1.0:
-            raise ValueError("p must be in the interval [0,1]")
+        # if not math.is_abstract(p) and not 0.0 <= p <= 1.0:
+        #     raise ValueError("p must be in the interval [0,1]")
 
         interface = math.get_interface(p)
 
@@ -288,13 +288,13 @@ class QutritAmplitudeDamping(Channel):
 
     def __init__(self, gamma_10, gamma_20, gamma_21, wires, id=None):
         # Verify input
-        for gamma in (gamma_10, gamma_20, gamma_21):
-            if not math.is_abstract(gamma):
-                if not 0.0 <= gamma <= 1.0:
-                    raise ValueError("Each probability must be in the interval [0,1]")
-        if not (math.is_abstract(gamma_20) or math.is_abstract(gamma_21)):
-            if not 0.0 <= gamma_20 + gamma_21 <= 1.0:
-                raise ValueError(r"\gamma_{20}+\gamma_{21} must be in the interval [0,1]")
+        # for gamma in (gamma_10, gamma_20, gamma_21):
+        #     if not math.is_abstract(gamma):
+        #         if not 0.0 <= gamma <= 1.0:
+        #             raise ValueError("Each probability must be in the interval [0,1]")
+        # if not (math.is_abstract(gamma_20) or math.is_abstract(gamma_21)):
+        #     if not 0.0 <= gamma_20 + gamma_21 <= 1.0:
+        #         raise ValueError(r"\gamma_{20}+\gamma_{21} must be in the interval [0,1]")
         super().__init__(gamma_10, gamma_20, gamma_21, wires=wires, id=id)
 
     @staticmethod
@@ -404,13 +404,13 @@ class TritFlip(Channel):
 
     def __init__(self, p_01, p_02, p_12, wires, id=None):
         # Verify input
-        ps = (p_01, p_02, p_12)
-        for p in ps:
-            if not math.is_abstract(p) and not 0.0 <= p <= 1.0:
-                raise ValueError("All probabilities must be in the interval [0,1]")
-        if not any(math.is_abstract(p) for p in ps):
-            if not 0.0 <= sum(ps) <= 1.0:
-                raise ValueError("The sum of probabilities must be in the interval [0,1]")
+        # ps = (p_01, p_02, p_12)
+        # for p in ps:
+        #     if not math.is_abstract(p) and not 0.0 <= p <= 1.0:
+        #         raise ValueError("All probabilities must be in the interval [0,1]")
+        # if not any(math.is_abstract(p) for p in ps):
+        #     if not 0.0 <= sum(ps) <= 1.0:
+        #         raise ValueError("The sum of probabilities must be in the interval [0,1]")
 
         super().__init__(p_01, p_02, p_12, wires=wires, id=id)
 
