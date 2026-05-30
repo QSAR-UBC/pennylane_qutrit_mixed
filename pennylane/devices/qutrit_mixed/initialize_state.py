@@ -89,9 +89,8 @@ def _create_basis_state(num_wires, index):  # function is easy to abstract for q
         index (int): integer representing the computational basis state.
 
     Returns:
-        array[complex]: complex array of shape ``[QUDIT_DIM] * (2 * num_wires)``
-        representing the density matrix of the basis state, where ``QUDIT_DIM`` is
-        the dimension of the system.
+        array[complex]: complex array of shape ``[3] * (2 * num_wires)``
+        representing the density matrix of the basis state.
     """
     rho = qp.math.zeros((QUDIT_DIM**num_wires, QUDIT_DIM**num_wires))
     rho[index, index] = 1

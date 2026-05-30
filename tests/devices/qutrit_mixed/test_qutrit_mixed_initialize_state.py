@@ -15,8 +15,13 @@
 
 import pytest
 
+<<<<<<< HEAD
 import pennylane as qp
 from pennylane import QutritBasisState, QutritDensityMatrix
+=======
+import pennylane as qml
+from pennylane import QutritBasisState, math
+>>>>>>> 1fea1680aa74b6dac742e73ec9d692f72e1173f0
 from pennylane import numpy as np
 from pennylane.devices.qutrit_mixed import create_initial_state
 from pennylane.operation import StatePrepBase
@@ -59,6 +64,7 @@ class TestInitializeState:
             assert qp.math.get_interface(state) == "numpy"
         else:
             assert qp.math.get_interface(state) == interface
+
 
     def test_create_initial_state_with_BasisState(self):
         """Tests that create_initial_state works with a real state-prep operator."""
